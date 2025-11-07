@@ -1,5 +1,6 @@
-// script.js — Core ZenNoise functionality (commit 2)
+// script.js — Core ZenNoise functionality + persistence (commit 3)
 // ES6+; creates three ambient layers using Web Audio API and binds UI controls
+// plus saves/loads presets to localStorage
 
 let audioCtx = null;
 let nodes = {};
@@ -106,7 +107,6 @@ function makePad() {
   const amp = audioCtx.createGain();
   amp.gain.value = 0; // start silent
 
-  // slow ADSR-ish envelope on start/stop managed by play/stop
   const filter = audioCtx.createBiquadFilter();
   filter.type = 'lowpass';
   filter.frequency.value = 1200;
@@ -201,6 +201,72 @@ function updatePad() {
   if (nodes.pad) nodes.pad.osc.frequency.setTargetAtTime(parseFloat(padFreqEl.value), audioCtx.currentTime, 0.2);
 }
 
+// persistence: localStorage presets
+const STORAGE_KEY = 'zennoise.presets';
+
+function loadPresetList() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  let list = {};
+  try {
+    list = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.warn('Failed to parse presets', e);
+    list = {};
+  }
+  // populate select
+  loadListEl.innerHTML = '<option value="">(choose preset)</option>';
+  Object.keys(list).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    loadListEl.appendChild(opt);
+  });
+  return list;
+}
+
+function savePresetToStorage(name, data) {
+  if (!name) return false;
+  const list = loadPresetList();
+  list[name] = data;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  loadPresetList();
+  return true;
+}
+
+function deletePresetFromStorage(name) {
+  if (!name) return false;
+  const list = loadPresetList();
+  if (list[name]) {
+    delete list[name];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    loadPresetList();
+    return true;
+  }
+  return false;
+}
+
+function getCurrentSettings() {
+  return {
+    rainVol: parseFloat(rainVolEl.value),
+    rainDamp: parseFloat(rainDampEl.value),
+    windVol: parseFloat(windVolEl.value),
+    windRate: parseFloat(windRateEl.value),
+    padVol: parseFloat(padVolEl.value),
+    padFreq: parseFloat(padFreqEl.value)
+  };
+}
+
+function applySettings(s) {
+  if (!s) return;
+  rainVolEl.value = s.rainVol ?? rainVolEl.value;
+  rainDampEl.value = s.rainDamp ?? rainDampEl.value;
+  windVolEl.value = s.windVol ?? windVolEl.value;
+  windRateEl.value = s.windRate ?? windRateEl.value;
+  padVolEl.value = s.padVol ?? padVolEl.value;
+  padFreqEl.value = s.padFreq ?? padFreqEl.value;
+  updateRain(); updateWind(); updatePad();
+}
+
 // wire UI
 playBtn.addEventListener('click', () => {
   if (!audioCtx) start();
@@ -226,4 +292,34 @@ randomBtn.addEventListener('click', () => {
   });
 });
 
-// Preset UI events will be wired in later commits (persistence)
+// Preset UI wiring
+savePresetBtn.addEventListener('click', () => {
+  const name = presetNameEl.value.trim();
+  if (!name) {
+    alert('Please enter a name for the preset.');
+    return;
+  }
+  const data = getCurrentSettings();
+  savePresetToStorage(name, data);
+  presetNameEl.value = '';
+});
+
+loadPresetBtn.addEventListener('click', () => {
+  const name = loadListEl.value;
+  if (!name) { alert('Choose a preset to load'); return; }
+  const list = loadPresetList();
+  const data = list[name];
+  if (!data) { alert('Preset not found'); return; }
+  applySettings(data);
+});
+
+deletePresetBtn.addEventListener('click', () => {
+  const name = loadListEl.value;
+  if (!name) { alert('Choose a preset to delete'); return; }
+  if (confirm(`Delete preset "${name}"?`)) {
+    deletePresetFromStorage(name);
+  }
+});
+
+// populate preset list on load
+document.addEventListener('DOMContentLoaded', loadPresetList);
